@@ -164,24 +164,13 @@ def run_play(task_id: str, cfg: PlayConfig):
   # Enable hardware gamepad if requested.
   if cfg.gamepad is not None:
     from src.tasks.velocity.mdp.gamepad import Gamepad
-    from src.tasks.velocity.mdp.velocity_command import UniformVelocityCommand as LocalUVC
-
-    # Match both installed (mjlab) and local (src) UniformVelocityCommand.
-    try:
-      from mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommand as MjlabUVC
-      uvc_types = (LocalUVC, MjlabUVC)
-    except ImportError:
-      uvc_types = (LocalUVC,)
 
     cmd_mgr = env.unwrapped.command_manager
     for name in cmd_mgr.active_terms:
       term = cmd_mgr.get_term(name)
-      if isinstance(term, uvc_types):
+      if hasattr(term, 'vel_command_b'):
         gp = Gamepad(device=cfg.gamepad)
         if gp.start():
-          term._gamepad = gp
-          term._gamepad_get_env_idx = lambda: 0
-          # Monkey-patch compute to add gamepad override.
           _original_compute = term.compute
           _ranges = term.cfg.ranges
 
