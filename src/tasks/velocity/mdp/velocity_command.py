@@ -16,6 +16,7 @@ from mjlab.utils.lab_api.math import (
 )
 
 if TYPE_CHECKING:
+  from src.tasks.velocity.mdp.gamepad import Gamepad
   import viser
 
   from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -50,6 +51,10 @@ class UniformVelocityCommand(CommandTerm):
     self._joystick_enabled: viser.GuiCheckboxHandle | None = None
     self._joystick_sliders: list[viser.GuiSliderHandle] = []
     self._joystick_get_env_idx: Callable[[], int] | None = None
+
+    # Hardware gamepad (Xbox controller etc.).
+    self._gamepad = None
+    self._gamepad_get_env_idx: Callable[[], int] | None = None
 
   @property
   def command(self) -> torch.Tensor:
@@ -166,13 +171,45 @@ class UniformVelocityCommand(CommandTerm):
     self._joystick_sliders = sliders
     self._joystick_get_env_idx = get_env_idx
 
+  def enable_gamepad(
+    self,
+    get_env_idx: Callable[[], int],
+    device: str = "/dev/input/js0",
+    deadzone: float = 0.12,
+  ) -> bool:
+    """Start reading a hardware gamepad (Xbox controller).
+
+    Left stick Y  -> lin_vel_x  (forward/backward)
+    Left stick X  -> lin_vel_y  (lateral)
+    Right stick X -> ang_vel_z  (yaw)
+
+    Returns True if the device was opened successfully.
+    """
+    from src.tasks.velocity.mdp.gamepad import Gamepad
+
+    gp = Gamepad(device=device, deadzone=deadzone)
+    if not gp.start():
+      return False
+    self._gamepad = gp
+    self._gamepad_get_env_idx = get_env_idx
+    return True
+
   def compute(self, dt: float) -> None:
     super().compute(dt)
+    # Viser GUI sliders.
     if self._joystick_enabled is not None and self._joystick_enabled.value:
       assert self._joystick_get_env_idx is not None
       idx = self._joystick_get_env_idx()
       for i, s in enumerate(self._joystick_sliders):
         self.vel_command_b[idx, i] = s.value
+    # Hardware gamepad overrides GUI sliders.
+    if self._gamepad is not None and self._gamepad.connected:
+      assert self._gamepad_get_env_idx is not None
+      idx = self._gamepad_get_env_idx()
+      ranges = self.cfg.ranges
+      self.vel_command_b[idx, 0] = self._gamepad.left_y * ranges.lin_vel_x[1]
+      self.vel_command_b[idx, 1] = self._gamepad.left_x * ranges.lin_vel_y[1]
+      self.vel_command_b[idx, 2] = self._gamepad.right_x * ranges.ang_vel_z[1]
 
   # Visualization.
 

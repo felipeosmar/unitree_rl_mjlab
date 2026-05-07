@@ -34,6 +34,8 @@ class PlayConfig:
   viewer: Literal["auto", "native", "viser"] = "auto"
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
+  gamepad: str | None = "/dev/input/js0"
+  """Path to gamepad device for Xbox controller input (None to disable)."""
 
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
@@ -158,6 +160,43 @@ def run_play(task_id: str, cfg: PlayConfig):
       str(resume_path), load_cfg={"actor": True}, strict=True, map_location=device
     )
     policy = runner.get_inference_policy(device=device)
+
+  # Enable hardware gamepad if requested.
+  if cfg.gamepad is not None:
+    from src.tasks.velocity.mdp.gamepad import Gamepad
+    from src.tasks.velocity.mdp.velocity_command import UniformVelocityCommand as LocalUVC
+
+    # Match both installed (mjlab) and local (src) UniformVelocityCommand.
+    try:
+      from mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommand as MjlabUVC
+      uvc_types = (LocalUVC, MjlabUVC)
+    except ImportError:
+      uvc_types = (LocalUVC,)
+
+    cmd_mgr = env.unwrapped.command_manager
+    for name in cmd_mgr.active_terms:
+      term = cmd_mgr.get_term(name)
+      if isinstance(term, uvc_types):
+        gp = Gamepad(device=cfg.gamepad)
+        if gp.start():
+          term._gamepad = gp
+          term._gamepad_get_env_idx = lambda: 0
+          # Monkey-patch compute to add gamepad override.
+          _original_compute = term.compute
+          _ranges = term.cfg.ranges
+
+          def _patched_compute(dt, _orig=_original_compute, _gp=gp, _r=_ranges, _t=term):
+            _orig(dt)
+            if _gp.connected:
+              _t.vel_command_b[0, 0] = _gp.left_y * _r.lin_vel_x[1]
+              _t.vel_command_b[0, 1] = -_gp.left_x * _r.lin_vel_y[1]
+              _t.vel_command_b[0, 2] = -_gp.right_x * _r.ang_vel_z[1]
+
+          term.compute = _patched_compute
+          print(f"[INFO]: Xbox gamepad enabled — left stick: move, right stick: turn")
+        else:
+          print(f"[WARN]: Gamepad device not found: {cfg.gamepad}")
+        break
 
   # Handle "auto" viewer selection.
   if cfg.viewer == "auto":
