@@ -1,5 +1,7 @@
 *.egg-info
 .idea
+.venv/
+__pycache__/
 outputs
 logs
 wandb
