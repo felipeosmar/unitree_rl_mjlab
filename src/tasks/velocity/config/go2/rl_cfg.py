@@ -44,3 +44,12 @@ def unitree_go2_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     num_steps_per_env=24,
     max_iterations=10001,
   )
+
+
+def unitree_go2_gallop_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+  """RL runner cfg for the gallop (bound) policy. Separate experiment dir
+  and longer training horizon than the trot policy."""
+  cfg = unitree_go2_ppo_runner_cfg()
+  cfg.experiment_name = "go2_gallop"
+  cfg.max_iterations = 50001
+  return cfg

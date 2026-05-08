@@ -14,9 +14,15 @@ include_directories(
   /usr/include/eigen3
   /usr/local/include/ddscxx
   /usr/local/include/iceoryx/v2.0.2
+  ${PROJECT_SOURCE_DIR}/../../../thirdparty/unitree_sdk2/install/include
+  ${PROJECT_SOURCE_DIR}/../../../thirdparty/unitree_sdk2/install/include/ddscxx
   include
   ${ONNXRUNTIME_DIR}/include
   ${PROJECT_SOURCE_DIR}/../../include/
+)
+
+link_directories(
+  ${PROJECT_SOURCE_DIR}/../../../thirdparty/unitree_sdk2/install/lib
 )
 
 link_libraries(

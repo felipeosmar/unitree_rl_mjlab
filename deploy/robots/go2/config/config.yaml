@@ -28,4 +28,6 @@ FSM:
     transitions: 
       Passive: LT + B.on_pressed
     policy_dir: config/policy/velocity
-    
+use_joystick: 1
+joystick_type: "xbox"
+joystick_device: "/dev/input/js0"

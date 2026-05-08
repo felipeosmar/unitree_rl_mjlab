@@ -1,11 +1,11 @@
-robot: "g1"
-robot_scene: "src/assets/robots/unitree_g1/xmls/scene_g1.xml"
+robot: "go2"
+robot_scene: "src/assets/robots/unitree_go2/xmls/scene_go2.xml"
+#robot: "g1"
+#robot_scene: "src/assets/robots/unitree_g1/xmls/scene_g1.xml"
 #robot: "g1_23dof"
 #robot_scene: "src/assets/robots/unitree_g1/xmls/scene_g1_23dof.xml"
 #robot: "h1_2"
 #robot_scene: "src/assets/robots/unitree_h1_2/xmls/scene_h1_2.xml"
-#robot: "go2"
-#robot_scene: "src/assets/robots/unitree_go2/xmls/scene_go2.xml"
 #robot: "a2"
 #robot_scene: "src/assets/robots/unitree_a2/xmls/scene_a2.xml"
 
@@ -14,7 +14,7 @@ interface: "lo" # Interface
 
 use_joystick: 1 # Simulate Unitree WirelessController using a gamepad
 joystick_type: "xbox" # support "xbox" and "switch" gamepad layout
-joystick_device: "/dev/input/js0" # Device path
+joystick_device: "/dev/input/js0" # Device path for the connected Xbox controller
 joystick_bits: 16 # Some game controllers may only have 8-bit accuracy
 
 print_scene_information: 1 # Print link, joint and sensors information of robot

@@ -168,3 +168,66 @@ def unitree_go2_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     twist_cmd.ranges.ang_vel_z = (-0.5, 0.5)
 
   return cfg
+
+
+def unitree_go2_gallop_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Unitree Go2 gallop (bound) high-speed configuration.
+
+  Bound gait: front pair and rear pair move in phase. Used as a fast,
+  energy-efficient mode for sustained high speeds (~2-3.5 m/s). Trained
+  as a separate policy from the trot policy.
+  """
+  cfg = unitree_go2_flat_env_cfg(play=play)
+
+  # Faster cadence for bound (~2.85 Hz). Trot uses 0.6s (~1.67 Hz).
+  gallop_period = 0.35
+  # Bound: FR+FL together, RR+RL together. Order is (FR, FL, RR, RL).
+  gallop_offset = [0.0, 0.0, 0.5, 0.5]
+
+  cfg.observations["actor"].terms["phase"].params["period"] = gallop_period
+  cfg.observations["critic"].terms["phase"].params["period"] = gallop_period
+
+  cfg.rewards["foot_gait"].params["period"] = gallop_period
+  cfg.rewards["foot_gait"].params["offset"] = gallop_offset
+  # Stance fraction: bound has shorter stance / longer aerial phase.
+  cfg.rewards["foot_gait"].params["threshold"] = 0.45
+  # Reinforce bound shape more than trot did.
+  cfg.rewards["foot_gait"].weight = 0.8
+
+  # Higher swing height — bound has clear aerial phase.
+  cfg.rewards["foot_clearance"].params["target_height"] = 0.14
+
+  # Earlier running posture: gallop is always in the running regime.
+  cfg.rewards["pose"].params["walking_threshold"] = 0.1
+  cfg.rewards["pose"].params["running_threshold"] = 0.8
+
+  # Re-tune posture stds — wider hip/thigh range for bound dynamics.
+  cfg.rewards["pose"].params["std_running"] = {
+    r".*(FR|FL|RR|RL)_hip_joint.*": 0.20,
+    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.45,
+    r".*(FR|FL|RR|RL)_calf_joint.*": 0.55,
+  }
+
+  # Command range targeted at high forward speed; reduce lateral/yaw.
+  twist_cmd = cfg.commands["twist"]
+  assert isinstance(twist_cmd, UniformVelocityCommandCfg)
+  twist_cmd.ranges.lin_vel_x = (0.5, 3.5)
+  twist_cmd.ranges.lin_vel_y = (-0.5, 0.5)
+  twist_cmd.ranges.ang_vel_z = (-0.8, 0.8)
+
+  # Curriculum: ramp forward speed gradually so policy converges.
+  # (play=True clears the curriculum upstream — only set in train mode.)
+  if "command_vel" in cfg.curriculum:
+    cfg.curriculum["command_vel"].params["velocity_stages"] = [
+      {"step": 0,          "lin_vel_x": (0.5, 1.5), "lin_vel_y": (-0.3, 0.3), "ang_vel_z": (-0.5, 0.5)},
+      {"step": 5000 * 24,  "lin_vel_x": (0.5, 2.2), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-0.6, 0.6)},
+      {"step": 15000 * 24, "lin_vel_x": (0.5, 2.8), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-0.7, 0.7)},
+      {"step": 30000 * 24, "lin_vel_x": (0.5, 3.5), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-0.8, 0.8)},
+    ]
+
+  if play:
+    twist_cmd.ranges.lin_vel_x = (0.5, 3.5)
+    twist_cmd.ranges.lin_vel_y = (-0.5, 0.5)
+    twist_cmd.ranges.ang_vel_z = (-0.8, 0.8)
+
+  return cfg

@@ -1,0 +1,875 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Navegação Autônoma por Voz — Go2</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css" id="theme" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css" />
+
+<style>
+  :root {
+    --accent: #ffb454;
+    --accent2: #7dd3fc;
+    --accent3: #a3e635;
+    --accent4: #f472b6;
+    --bg: #111418;
+    --panel: #1b2027;
+    --line: #2a313b;
+  }
+  .reveal { font-family: "Inter", system-ui, sans-serif; }
+  .reveal h1, .reveal h2, .reveal h3 { color: var(--accent); letter-spacing: -0.5px; }
+  .reveal h1 { font-size: 2.3em; }
+  .reveal h2 { font-size: 1.5em; margin-bottom: 0.4em; }
+  .reveal h3 { font-size: 1.1em; color: var(--accent2); }
+  .reveal section { text-align: left; }
+  .reveal .slide-number { color: var(--accent); }
+
+  .reveal pre { width: 100%; box-shadow: none; }
+  .reveal code { background: #0c0f12; border-radius: 6px; padding: 0.1em 0.4em; }
+  .reveal pre code { padding: 14px 18px; border-radius: 8px; line-height: 1.4; font-size: 0.7em; }
+
+  .reveal table { font-size: 0.65em; border-collapse: collapse; width: 100%; }
+  .reveal table th, .reveal table td {
+    border: 1px solid var(--line); padding: 6px 10px;
+  }
+  .reveal table th { background: #232a33; color: var(--accent); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 18px;
+    font-size: 0.78em;
+  }
+  .card h3 { margin-top: 0; }
+  .card.accent  { border-left: 4px solid var(--accent);  }
+  .card.accent2 { border-left: 4px solid var(--accent2); }
+  .card.accent3 { border-left: 4px solid var(--accent3); }
+  .card.accent4 { border-left: 4px solid var(--accent4); }
+
+  .pill {
+    display: inline-block;
+    background: #2a313b;
+    color: var(--accent2);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.65em;
+    font-family: ui-monospace, monospace;
+    margin-right: 4px;
+  }
+
+  .mermaid { background: transparent; font-family: "Inter", sans-serif; }
+  .mermaid svg { max-height: 560px; height: auto; }
+
+  .footer-note {
+    position: absolute;
+    bottom: 8px; left: 0; right: 0;
+    text-align: center;
+    font-size: 0.45em;
+    color: #5a6573;
+  }
+
+  .legend { font-size: 0.7em; color: #aab3bd; margin-top: 8px; }
+  .small { font-size: 0.7em; }
+  .smaller { font-size: 0.6em; }
+  ul.tight li { margin: 0.1em 0; }
+
+  .stage-banner {
+    display: inline-block;
+    background: linear-gradient(90deg, var(--accent), var(--accent4));
+    color: #111;
+    font-weight: 700;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 0.7em;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+  .map-svg { width: 100%; max-height: 380px; }
+</style>
+</head>
+<body>
+<div class="reveal">
+  <div class="slides">
+
+  <!-- ============== 1. CAPA ============== -->
+  <section data-background-gradient="linear-gradient(135deg, #1b2027 0%, #111418 100%)">
+    <div style="text-align:center;">
+      <div style="font-size:4em;">🎙️ → 🐕</div>
+      <h1 style="margin-top:0;">Navegação Autônoma por Voz</h1>
+      <h2 style="color:var(--accent2); border:none;">Go2 + RL + SLAM + LLM</h2>
+      <p class="small" style="margin-top:1em; color:#aab3bd;">
+        <em>"Vá para o canto da sala"</em> → da onda de áudio até o torque das juntas
+      </p>
+      <p class="smaller" style="margin-top:2em; color:#5a6573;">
+        unitree_rl_mjlab · Felipe Aviz · 2026-05-08<br/>
+        Use ← → ou espaço pra navegar · <kbd>F</kbd> tela cheia · <kbd>O</kbd> overview
+      </p>
+    </div>
+  </section>
+
+  <!-- ============== 2. PIPELINE OVERVIEW ============== -->
+  <section>
+    <h2>Pipeline completo — visão de pássaro</h2>
+    <p class="small">7 estágios. Os 6 primeiros são novos. O último <strong>já existe</strong> no seu repo.</p>
+    <div class="mermaid">
+flowchart LR
+  M(["🎙️<br/>Microfone"]):::sensor
+  STT["1. STT<br/>Whisper"]:::layer
+  NLU["2. NLU<br/>LLM → intent"]:::layer
+  MAP[("🗺️<br/>Mapa anotado")]:::store
+  PLAN["4. Planner<br/>A* / RRT*"]:::layer
+  POSE["3. SLAM<br/>FAST-LIO"]:::layer
+  CTRL["5. Pure-pursuit<br/>→ vx, wz"]:::layer
+  POL["6. Policy RL<br/>model_10000.pt"]:::existing
+  ROBOT(["🐕<br/>Go2"]):::sensor
+
+  L1(["LiDAR L1"]):::sensor
+  IMU(["IMU + encoders"]):::sensor
+
+  M --> STT --> NLU
+  NLU -->|"alvo<br/>semântico"| MAP
+  MAP -->|"goal<br/>(x,y)"| PLAN
+  L1 --> POSE
+  IMU --> POSE
+  POSE -->|"pose atual"| PLAN
+  POSE --> CTRL
+  PLAN -->|"caminho"| CTRL
+  CTRL -->|"[vx, vy, ωz]"| POL
+  IMU --> POL
+  POL -->|"12 torques"| ROBOT
+
+  classDef layer fill:#1b2027,stroke:#ffb454,color:#ffb454,stroke-width:2px;
+  classDef existing fill:#1b2027,stroke:#a3e635,color:#a3e635,stroke-width:3px;
+  classDef sensor fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef store fill:#0c0f12,stroke:#f472b6,color:#f472b6;
+    </div>
+    <p class="legend">
+      <span class="pill" style="color:var(--accent3)">verde</span> já existe ·
+      <span class="pill" style="color:var(--accent)">laranja</span> a construir ·
+      <span class="pill" style="color:var(--accent2)">azul</span> sensor físico ·
+      <span class="pill" style="color:var(--accent4)">rosa</span> dado persistido
+    </p>
+  </section>
+
+  <!-- ============== 3. MAPA MENTAL ============== -->
+  <section>
+    <h2>Mapa mental — o que cada fase precisa</h2>
+    <div class="mermaid">
+mindmap
+  root((Comando<br/>de voz<br/>→ Go2))
+    Áudio
+      Hardware
+        Mic USB no laptop
+        Mic na cabeça do Go2
+      Software
+        sounddevice
+        VAD silero
+    STT
+      Whisper local
+        faster-whisper
+        modelo small.pt
+      Vosk offline
+    NLU
+      LLM local Ollama
+        Llama 3 8B
+        Qwen 2.5 7B
+      Function calling
+        intent
+        alvo semântico
+    Mapa
+      SLAM offline
+        FAST-LIO
+        LIO-SAM
+      Anotação manual
+        canto sala
+        porta
+        base de carga
+    Planejador
+      A star grid
+      RRT star
+      Nav2 ROS2
+    Controle
+      Pure-pursuit
+      MPC simples
+      saída vx vy wz
+    Policy RL
+      JÁ EXISTE
+        model_10000.pt
+        recebe vx vy wz
+        gera 12 torques
+    </div>
+  </section>
+
+  <!-- ============== 4. STACK ATUAL ============== -->
+  <section>
+    <h2>O que <em>já</em> existe no seu repo</h2>
+    <div class="grid2">
+      <div class="card accent3">
+        <h3>✅ Policy de locomoção</h3>
+        <p class="small">Treinada em <code>velocity_env_cfg.py</code> com PPO actor-critic assimétrico.</p>
+        <ul class="small tight">
+          <li>Entrada: <code>[vx, vy, ωz]</code> + IMU + encoders + height_scan</li>
+          <li>Saída: 12 ações de junta (alvo de posição)</li>
+          <li>Best: <code>model_10000.pt</code> (2026-04-15_16-10-05)</li>
+        </ul>
+      </div>
+      <div class="card accent3">
+        <h3>✅ Deploy real C++</h3>
+        <p class="small">FSM com transições gamepad em <code>deploy/robots/go2/</code>.</p>
+        <ul class="small tight">
+          <li><code>Passive → FixStand → Velocity</code></li>
+          <li><code>State_RLBase.cpp</code> roda inferência ONNX</li>
+          <li>Comando vem do joystick Xbox via <code>config.yaml</code></li>
+        </ul>
+      </div>
+      <div class="card accent">
+        <h3>🛠️ LiDAR L1 (hardware existe, integração não)</h3>
+        <p class="small">Todo Go2 tem o L1 4D solid-state na cabeça.</p>
+        <ul class="smaller tight">
+          <li>360° H × 59° V, ~21k pts/s, 30 m</li>
+          <li>Não está em <code>actor_terms</code> — só <code>height_scan</code> existe</li>
+          <li>SDK Unitree expõe via DDS topic</li>
+        </ul>
+      </div>
+      <div class="card accent">
+        <h3>❌ Tudo o resto</h3>
+        <ul class="smaller tight">
+          <li>Stack de áudio</li>
+          <li>STT / NLU</li>
+          <li>SLAM / mapa anotado</li>
+          <li>Planejador de caminho</li>
+          <li>Loop de controle de alto nível</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 5. FASE 1 - ÁUDIO ============== -->
+  <section>
+    <span class="stage-banner">FASE 1 · CAPTURA DE ÁUDIO</span>
+    <h2>Microfone → buffer de PCM</h2>
+    <div class="grid2">
+      <div>
+        <div class="mermaid">
+flowchart TD
+  MIC([🎙️ Mic USB<br/>16 kHz mono]):::s
+  RING["Ring buffer<br/>~10s"]:::l
+  VAD{"VAD<br/>(silero)"}:::l
+  CHUNK["Chunk de fala<br/>WAV 16-bit PCM"]:::out
+
+  MIC -->|"sounddevice"| RING
+  RING --> VAD
+  VAD -->|"voz detectada"| CHUNK
+  VAD -.->|"silêncio"| RING
+
+  classDef s fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef l fill:#1b2027,stroke:#ffb454,color:#ffb454;
+  classDef out fill:#1b2027,stroke:#a3e635,color:#a3e635;
+        </div>
+      </div>
+      <div>
+        <h3>Decisões de design</h3>
+        <ul class="small tight">
+          <li><strong>Onde fica o microfone?</strong>
+            <ul class="smaller tight">
+              <li>Laptop que comanda → mais simples, latência de rede irrelevante</li>
+              <li>Cabeça do Go2 → ruído do gait, mas robô fica autônomo</li>
+            </ul>
+          </li>
+          <li><strong>Wake-word?</strong> <code>"Go2..."</code> via <em>openWakeWord</em> evita STT rodar 100% do tempo</li>
+          <li><strong>VAD</strong> (Voice Activity Detection): corta silêncios e segmenta enunciados — economiza ~10× tempo de inferência</li>
+        </ul>
+        <h3>Stack recomendado</h3>
+        <pre><code class="language-python">import sounddevice as sd
+import silero_vad as vad
+
+stream = sd.InputStream(
+    samplerate=16000, channels=1,
+    blocksize=512, dtype='int16'
+)
+# silero_vad.detect → bool por chunk de 32ms</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 6. FASE 2 - STT ============== -->
+  <section>
+    <span class="stage-banner">FASE 2 · SPEECH-TO-TEXT</span>
+    <h2>Whisper local — áudio vira texto</h2>
+    <div class="grid2">
+      <div>
+        <div class="mermaid">
+flowchart LR
+  WAV(["WAV 16k<br/>~3s"]):::in
+  W["faster-whisper<br/>small.pt"]:::l
+  TXT(["📝 'vá para o<br/>canto da sala'"]):::out
+
+  WAV --> W --> TXT
+
+  classDef in fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef l fill:#1b2027,stroke:#ffb454,color:#ffb454;
+  classDef out fill:#1b2027,stroke:#a3e635,color:#a3e635;
+        </div>
+        <h3>Trade-off de modelo</h3>
+        <table>
+          <thead><tr><th>Modelo</th><th>Tam.</th><th>WER pt-BR</th><th>Latência*</th></tr></thead>
+          <tbody>
+            <tr><td>tiny</td><td>75 MB</td><td>~28%</td><td>0.3s</td></tr>
+            <tr><td><strong>small</strong></td><td>460 MB</td><td>~14%</td><td>0.8s</td></tr>
+            <tr><td>medium</td><td>1.4 GB</td><td>~9%</td><td>2.0s</td></tr>
+            <tr><td>large-v3</td><td>2.9 GB</td><td>~6%</td><td>4.5s</td></tr>
+          </tbody>
+        </table>
+        <p class="smaller">* RTX 2000, áudio de 3s, sem batching</p>
+      </div>
+      <div>
+        <h3>Por que Whisper?</h3>
+        <ul class="small tight">
+          <li>Roda 100% local — sem dependência de cloud</li>
+          <li>Treinado nativamente em pt-BR (parte do multilingual)</li>
+          <li><code>faster-whisper</code> usa CTranslate2 → 4× mais rápido que o oficial</li>
+          <li>Compartilha GPU com o resto do stack</li>
+        </ul>
+        <h3>Snippet típico</h3>
+        <pre><code class="language-python">from faster_whisper import WhisperModel
+
+model = WhisperModel("small", device="cuda",
+                     compute_type="int8_float16")
+
+segments, _ = model.transcribe(
+    audio_chunk, language="pt", beam_size=1
+)
+texto = " ".join(s.text for s in segments)
+# "vá para o canto da sala"</code></pre>
+        <p class="legend">📌 Para latência mínima: streaming com <code>whisper-streaming</code> mostra texto parcial enquanto fala.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 7. FASE 3 - NLU ============== -->
+  <section>
+    <span class="stage-banner">FASE 3 · COMPREENSÃO (NLU)</span>
+    <h2>Texto → intent estruturado</h2>
+    <div class="mermaid">
+flowchart LR
+  T(["📝 'vá para o canto da sala'"]):::in
+  L["LLM local<br/>(Llama 3 8B)<br/>+ system prompt<br/>+ landmarks conhecidos"]:::l
+  J(["🎯 JSON<br/>{ ação: ir_para,<br/>&nbsp;&nbsp;alvo: canto_sala,<br/>&nbsp;&nbsp;modo: caminhar }"]):::out
+
+  T --> L --> J
+
+  classDef in fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef l fill:#1b2027,stroke:#ffb454,color:#ffb454;
+  classDef out fill:#1b2027,stroke:#a3e635,color:#a3e635;
+    </div>
+    <div class="grid2" style="margin-top:8px;">
+      <div class="card accent2">
+        <h3>System prompt</h3>
+        <pre class="smaller"><code>Você é o cérebro de um robô Go2.
+Converta o pedido do usuário em JSON.
+Locais conhecidos: ["canto_sala",
+  "porta", "base_carga", "cozinha"]
+Ações: ir_para, parar, sentar, seguir.
+
+Responda APENAS com JSON válido.</code></pre>
+      </div>
+      <div class="card accent2">
+        <h3>Por que LLM e não regex?</h3>
+        <ul class="smaller tight">
+          <li>Lida com paráfrases: <em>"chega ali no canto"</em>, <em>"vai pro fundo"</em>, <em>"se aproxima da porta"</em></li>
+          <li>Resolve ambiguidade com contexto: <em>"volta lá"</em> → último alvo</li>
+          <li>Estende fácil — só adicionar landmark no prompt</li>
+          <li>3B/7B quantizado roda em 4-6 GB de VRAM no Ollama</li>
+        </ul>
+      </div>
+    </div>
+    <p class="legend" style="margin-top:8px;">⚠️ <strong>Validar a saída</strong>: parse JSON, checar se <code>alvo ∈ landmarks</code>. Se falhar, pedir repetir.</p>
+  </section>
+
+  <!-- ============== 8. FASE 4 - SLAM ============== -->
+  <section>
+    <span class="stage-banner">FASE 4 · SLAM E MAPA ANOTADO</span>
+    <h2>O robô precisa saber <em>onde está</em></h2>
+    <div class="grid2">
+      <div>
+        <h3>Pipeline de mapeamento (offline, 1 vez)</h3>
+        <div class="mermaid">
+flowchart TD
+  L1([LiDAR L1<br/>Go2]):::s
+  IMU([IMU<br/>200Hz]):::s
+  FAST["FAST-LIO 2<br/>(ROS 2)"]:::l
+  PCD[("📦 sala.pcd<br/>nuvem 3D")]:::st
+  ANN["Anotação<br/>manual<br/>(CloudCompare)"]:::l
+  YAML[("📍 landmarks.yaml<br/>canto_sala: x,y<br/>porta: x,y")]:::st
+
+  L1 & IMU --> FAST --> PCD --> ANN --> YAML
+
+  classDef s fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef l fill:#1b2027,stroke:#ffb454,color:#ffb454;
+  classDef st fill:#0c0f12,stroke:#f472b6,color:#f472b6;
+        </div>
+      </div>
+      <div>
+        <h3>Em runtime (cada step)</h3>
+        <div class="mermaid">
+flowchart TD
+  L1([LiDAR L1]):::s
+  IMU([IMU]):::s
+  FAST["FAST-LIO 2<br/>localização<br/>contra mapa"]:::l
+  POSE(["pose<br/>(x, y, θ)<br/>50 Hz"]):::out
+
+  L1 & IMU --> FAST --> POSE
+
+  classDef s fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef l fill:#1b2027,stroke:#ffb454,color:#ffb454;
+  classDef out fill:#1b2027,stroke:#a3e635,color:#a3e635;
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:14px;">Visualização — top-down do mapa anotado</h3>
+    <svg class="map-svg" viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg">
+      <!-- room walls -->
+      <rect x="60" y="40" width="680" height="240" fill="none" stroke="#7dd3fc" stroke-width="3"/>
+      <!-- door gap -->
+      <rect x="60" y="140" width="3" height="60" fill="#111418"/>
+      <text x="20" y="175" fill="#7dd3fc" font-size="14" font-family="ui-monospace">porta</text>
+      <line x1="50" y1="170" x2="65" y2="170" stroke="#f472b6" stroke-width="2" marker-end="url(#arrow)"/>
+      <!-- landmarks -->
+      <circle cx="700" cy="80" r="10" fill="#f472b6"/>
+      <text x="660" y="65" fill="#f472b6" font-size="14" font-family="ui-monospace">canto_sala</text>
+      <circle cx="400" cy="260" r="10" fill="#f472b6"/>
+      <text x="370" y="285" fill="#f472b6" font-size="14" font-family="ui-monospace">cozinha</text>
+      <circle cx="120" cy="240" r="10" fill="#f472b6"/>
+      <text x="80" y="265" fill="#f472b6" font-size="14" font-family="ui-monospace">base</text>
+      <!-- robot -->
+      <g transform="translate(180,140)">
+        <rect x="-22" y="-12" width="44" height="24" rx="4" fill="#a3e635" stroke="#111" stroke-width="2"/>
+        <circle cx="-12" cy="14" r="4" fill="#111"/><circle cx="12" cy="14" r="4" fill="#111"/>
+        <circle cx="-12" cy="-14" r="4" fill="#111"/><circle cx="12" cy="-14" r="4" fill="#111"/>
+        <text x="-9" y="-22" fill="#a3e635" font-size="12">Go2</text>
+      </g>
+      <!-- planned path -->
+      <path d="M 180 140 Q 350 100 500 90 T 700 80" stroke="#ffb454" stroke-width="3" fill="none" stroke-dasharray="6 4"/>
+      <text x="450" y="60" fill="#ffb454" font-size="13" font-family="ui-monospace">caminho planejado</text>
+      <!-- obstacles -->
+      <rect x="280" y="170" width="60" height="30" fill="#2a313b" stroke="#5a6573"/>
+      <rect x="540" y="180" width="80" height="40" fill="#2a313b" stroke="#5a6573"/>
+      <text x="290" y="225" fill="#5a6573" font-size="11">móvel</text>
+      <text x="555" y="240" fill="#5a6573" font-size="11">sofá</text>
+      <defs><marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#f472b6"/></marker></defs>
+    </svg>
+    <p class="legend">🟦 paredes · 🟪 landmarks anotados · 🟧 caminho do planner · ⬜ obstáculos detectados pelo LiDAR em runtime</p>
+  </section>
+
+  <!-- ============== 9. FASE 5 - PLANEJADOR ============== -->
+  <section>
+    <span class="stage-banner">FASE 5 · PLANEJADOR DE CAMINHO</span>
+    <h2>Pose atual + alvo → sequência de waypoints</h2>
+    <div class="grid2">
+      <div>
+        <div class="mermaid">
+flowchart TD
+  POSE(["pose atual<br/>x, y, θ"]):::in
+  GOAL(["goal<br/>landmark.canto_sala"]):::in
+  GRID[("costmap 2D<br/>do mapa SLAM<br/>+ inflate"):::st]:::st
+  ASTAR["A*<br/>na grid 0.1m"]:::l
+  SMOOTH["Bezier smoothing"]:::l
+  WP(["[(x,y), (x,y), ...]<br/>waypoints"]):::out
+
+  POSE & GOAL & GRID --> ASTAR --> SMOOTH --> WP
+
+  classDef in fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef l fill:#1b2027,stroke:#ffb454,color:#ffb454;
+  classDef st fill:#0c0f12,stroke:#f472b6,color:#f472b6;
+  classDef out fill:#1b2027,stroke:#a3e635,color:#a3e635;
+        </div>
+      </div>
+      <div>
+        <h3>Opções por complexidade</h3>
+        <table>
+          <thead><tr><th>Solução</th><th>Esforço</th><th>Quando usar</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>A* caseiro</strong></td>
+              <td>1 dia</td>
+              <td>MVP, sala sem dinâmica</td>
+            </tr>
+            <tr>
+              <td>RRT*</td>
+              <td>2-3 dias</td>
+              <td>Espaços 3D / não-holonômico</td>
+            </tr>
+            <tr>
+              <td>Nav2 (ROS 2)</td>
+              <td>1-2 sem.</td>
+              <td>Produção, replanning, recovery behaviors</td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>Custom map (costmap)</h3>
+        <ul class="smaller tight">
+          <li><strong>Estática</strong>: vem do mapa SLAM (paredes, móveis fixos)</li>
+          <li><strong>Dinâmica</strong>: LiDAR L1 em tempo real → infla obstáculos novos</li>
+          <li><strong>Inflate</strong> raio do robô (~0.4 m) pra A* tratar Go2 como ponto</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 10. FASE 6 - PURE PURSUIT ============== -->
+  <section>
+    <span class="stage-banner">FASE 6 · CONTROLE DE TRAJETÓRIA</span>
+    <h2>Waypoints → comando de velocidade</h2>
+    <div class="grid2">
+      <div>
+        <h3>Pure Pursuit</h3>
+        <p class="small">Mira sempre num <em>lookahead point</em> à frente do robô na trajetória.</p>
+        <svg viewBox="0 0 400 250" xmlns="http://www.w3.org/2000/svg" style="width:100%;">
+          <!-- path -->
+          <path d="M 30 200 Q 150 150 250 90 T 380 40" stroke="#ffb454" stroke-width="3" fill="none" stroke-dasharray="5 3"/>
+          <!-- robot -->
+          <g transform="translate(80,180) rotate(-25)">
+            <rect x="-18" y="-10" width="36" height="20" rx="3" fill="#a3e635" stroke="#111" stroke-width="1.5"/>
+            <line x1="0" y1="0" x2="30" y2="0" stroke="#a3e635" stroke-width="2" marker-end="url(#a)"/>
+          </g>
+          <!-- lookahead circle -->
+          <circle cx="80" cy="180" r="80" fill="none" stroke="#7dd3fc" stroke-width="1.5" stroke-dasharray="3 3"/>
+          <!-- lookahead point on path -->
+          <circle cx="155" cy="148" r="6" fill="#f472b6"/>
+          <text x="170" y="145" fill="#f472b6" font-size="13" font-family="ui-monospace">lookahead</text>
+          <!-- target heading -->
+          <line x1="80" y1="180" x2="155" y2="148" stroke="#f472b6" stroke-width="2" stroke-dasharray="4 4"/>
+          <!-- labels -->
+          <text x="20" y="220" fill="#a3e635" font-size="13">Go2</text>
+          <text x="320" y="35" fill="#ffb454" font-size="12" font-family="ui-monospace">caminho</text>
+          <defs><marker id="a" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#a3e635"/></marker></defs>
+        </svg>
+      </div>
+      <div>
+        <h3>Math (simplificado)</h3>
+        <pre><code class="language-python">def pure_pursuit(pose, path, Ld=0.6):
+    # encontra ponto na trajetória a Ld de distância
+    target = lookahead(pose, path, Ld)
+    dx = target.x - pose.x
+    dy = target.y - pose.y
+    # transforma pro frame do robô
+    alpha = atan2(dy, dx) - pose.theta
+
+    vx = V_NOMINAL * cos(alpha)
+    wz = 2 * V_NOMINAL * sin(alpha) / Ld
+    return (vx, 0.0, wz)  # vy=0, holonômico opcional</code></pre>
+        <h3>Tuning</h3>
+        <ul class="smaller tight">
+          <li><code>Ld</code> grande → suave mas corta curvas</li>
+          <li><code>Ld</code> pequeno → preciso mas oscila</li>
+          <li>Saturar <code>vx ≤ 2 m/s</code>, <code>|ωz| ≤ 1 rad/s</code> — limites do treino</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 11. FASE 7 - POLICY ============== -->
+  <section>
+    <span class="stage-banner">FASE 7 · POLICY DE LOCOMOÇÃO (JÁ EXISTE)</span>
+    <h2>Comando de velocidade → torques</h2>
+    <div class="mermaid">
+flowchart LR
+  CMD(["[vx, vy, ωz]<br/>do pure-pursuit"]):::in
+  IMU([IMU<br/>gyro + grav]):::s
+  ENC([encoders<br/>12 juntas]):::s
+  HEIGHT(["height_scan<br/>16×10"]):::s
+  ACT([última ação]):::s
+  PHASE([phase clock]):::s
+
+  POL["🧠 ACTOR MLP<br/>(model_10000.pt)<br/>~1M parâmetros"]:::pol
+
+  TARG(["12 alvos de<br/>posição<br/>50 Hz"]):::out
+  PD["PD interno<br/>kp=60-80, kd=4-5"]:::ctrl
+  TQ(["⚙️ torques<br/>1 kHz"]):::out
+
+  CMD --> POL
+  IMU --> POL
+  ENC --> POL
+  HEIGHT --> POL
+  ACT --> POL
+  PHASE --> POL
+  POL --> TARG --> PD --> TQ
+
+  classDef in fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef s fill:#0c0f12,stroke:#7dd3fc,color:#7dd3fc;
+  classDef pol fill:#1b2027,stroke:#a3e635,color:#a3e635,stroke-width:3px;
+  classDef ctrl fill:#1b2027,stroke:#ffb454,color:#ffb454;
+  classDef out fill:#1b2027,stroke:#a3e635,color:#a3e635;
+    </div>
+    <div class="grid2" style="margin-top:10px;">
+      <div class="card accent3">
+        <h3>O ponto de injeção</h3>
+        <p class="small">Em <code>State_RLBase.cpp</code> hoje o <code>command</code> vem do gamepad. Pra integrar a navegação autônoma, basta <strong>trocar a fonte de <code>(vx, vy, ωz)</code></strong>.</p>
+        <ul class="smaller tight">
+          <li>Joystick continua como override de segurança</li>
+          <li>RT+A entra em modo Velocity → policy autônoma</li>
+          <li>LT+B sempre volta pra Passive (kill switch)</li>
+        </ul>
+      </div>
+      <div class="card accent3">
+        <h3>Sem retreinar a policy</h3>
+        <p class="small">A policy já aceita qualquer <code>(vx, vy, ωz)</code> dentro do range do treino:</p>
+        <ul class="smaller tight">
+          <li>vx ∈ [-1.0, 2.0] m/s</li>
+          <li>ωz ∈ [-1.0, 1.0] rad/s</li>
+        </ul>
+        <p class="smaller">Pure-pursuit precisa <strong>saturar dentro disso</strong>, senão o robô extrapola e cai (ver <code>AUMENTAR_VELOCIDADE_GO2.md</code>).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 12. ARQUITETURA COMPLETA ============== -->
+  <section>
+    <h2>Arquitetura completa — todos os processos</h2>
+    <div class="mermaid">
+flowchart TB
+  subgraph LAPTOP["💻 Laptop (ROS 2 ou puro Python)"]
+    direction LR
+    A1([🎙️ mic]) --> A2["audio_node<br/>VAD"] --> A3["stt_node<br/>Whisper"] --> A4["nlu_node<br/>LLM"] --> A5["planner_node<br/>A*"]
+    A6["controller_node<br/>pure-pursuit"]
+    A7["slam_node<br/>FAST-LIO"]
+    A4 -.->|"goal"| A5
+    A7 -.->|"pose 50Hz"| A5
+    A7 -.->|"pose 50Hz"| A6
+    A5 -->|"path"| A6
+  end
+
+  subgraph GO2["🐕 Go2 (onboard, C++)"]
+    direction LR
+    B1["State_RLBase<br/>(seu deploy atual)"] --> B2["ONNX runtime<br/>policy 50Hz"] --> B3["motor command<br/>1kHz"]
+  end
+
+  subgraph SDK["Unitree SDK 2 (DDS)"]
+    direction TB
+    D1[/"sub: lidar_l1"/]
+    D2[/"sub: imu, joints"/]
+    D3[/"pub: cmd_vel"/]
+  end
+
+  A7 <-.->|"pointcloud<br/>200Hz"| D1
+  A7 <-.->|"imu"| D2
+  A6 -.->|"vx, vy, ωz<br/>50Hz"| D3
+  D3 -.->|"cmd"| B1
+  D2 -.->|"state"| B1
+
+  classDef def fill:#1b2027,stroke:#ffb454,color:#eee;
+    </div>
+    <p class="legend">Tudo no laptop conversa por DDS com o robô. O Go2 só precisa do binário C++ atual + um topic <code>cmd_vel</code> em vez do gamepad.</p>
+  </section>
+
+  <!-- ============== 13. PONTOS CONCRETOS NO REPO ============== -->
+  <section>
+    <h2>Onde cada peça encaixa no seu repo</h2>
+    <table>
+      <thead>
+        <tr><th>Componente</th><th>Caminho sugerido</th><th>O que existe</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Áudio + STT + NLU</td>
+          <td><code>scripts/voice/</code> (novo)</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>Mapa anotado</td>
+          <td><code>maps/lab_sala/</code> (novo)</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>SLAM</td>
+          <td><code>thirdparty/FAST_LIO/</code></td>
+          <td>já tem <code>thirdparty/</code> em uso</td>
+        </tr>
+        <tr>
+          <td>Planner + controller</td>
+          <td><code>scripts/navigation/</code> (novo)</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>Bridge → SDK</td>
+          <td><code>deploy/robots/go2/src/cmd_vel_bridge.cpp</code> (novo)</td>
+          <td><code>State_RLBase.cpp</code> recebe joystick — duplicar o caminho</td>
+        </tr>
+        <tr>
+          <td>Policy de RL</td>
+          <td><code>logs/rsl_rl/go2_velocity/</code></td>
+          <td>✅ <code>model_10000.pt</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <h3 style="margin-top:14px;">Mudança mínima no <code>State_RLBase</code></h3>
+    <pre><code class="language-cpp">// hoje:
+auto cmd = joystick.get_velocity_command();
+
+// depois:
+auto cmd = use_autonomous
+    ? dds_subscriber("cmd_vel").latest()  // do controller_node
+    : joystick.get_velocity_command();    // override</code></pre>
+  </section>
+
+  <!-- ============== 14. ROADMAP ============== -->
+  <section>
+    <h2>Roadmap MVP — ordem sugerida</h2>
+    <div class="mermaid">
+flowchart TD
+  S0["Hoje<br/>policy + joystick"]:::done
+  S1["1. Integrar LiDAR L1<br/>+ FAST-LIO offline<br/>(salvar mapa da sala)"]:::next
+  S2["2. Bridge cmd_vel<br/>(joystick → DDS topic)"]:::next
+  S3["3. Pure-pursuit hardcoded<br/>destino fixo, sem voz"]:::next
+  S4["4. STT + NLU<br/>com landmarks fixos"]:::next
+  S5["5. Replanning com<br/>obstáculos dinâmicos"]:::later
+  S6["6. Wake-word + UI"]:::later
+
+  S0 --> S1 --> S2 --> S3 --> S4 --> S5 --> S6
+
+  classDef done fill:#1b2027,stroke:#a3e635,color:#a3e635,stroke-width:3px;
+  classDef next fill:#1b2027,stroke:#ffb454,color:#ffb454,stroke-width:2px;
+  classDef later fill:#1b2027,stroke:#7dd3fc,color:#7dd3fc;
+    </div>
+    <div class="grid2" style="margin-top:8px;">
+      <div class="card accent">
+        <h3>🎯 Marco 1 (MVP funcional)</h3>
+        <p class="smaller">Comando "vai pro canto" → robô anda até lá em sala vazia. Sem desvio dinâmico.</p>
+        <p class="smaller"><strong>Esforço estimado:</strong> 2-3 semanas em tempo integral.</p>
+      </div>
+      <div class="card accent2">
+        <h3>🎯 Marco 2 (robusto)</h3>
+        <p class="smaller">Desvia de pessoas, replaneja em tempo real, opera com mapa de múltiplos ambientes.</p>
+        <p class="smaller"><strong>Esforço:</strong> +1-2 meses.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 15. RISCOS ============== -->
+  <section>
+    <h2>Riscos &amp; armadilhas comuns</h2>
+    <table>
+      <thead><tr><th>Risco</th><th>Impacto</th><th>Mitigação</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Pure-pursuit pede <code>vx</code> fora do range treinado</td>
+          <td>Robô cai</td>
+          <td>Saturar em <code>min(vx_planner, 2.0)</code>; suavizar aceleração</td>
+        </tr>
+        <tr>
+          <td>SLAM perde tracking (paredes brancas, sala simétrica)</td>
+          <td>Pose drift → robô vai pro lugar errado</td>
+          <td>Loop closure no FAST-LIO; landmarks visuais de fallback</td>
+        </tr>
+        <tr>
+          <td>LLM responde JSON inválido</td>
+          <td>Crash ou comando errado</td>
+          <td><code>json-schema</code> validation; fallback "não entendi"</td>
+        </tr>
+        <tr>
+          <td>Latência cumulativa &gt; 2s</td>
+          <td>Experiência ruim</td>
+          <td>Streaming Whisper + LLM com KV cache + planner async</td>
+        </tr>
+        <tr>
+          <td>Obstáculo móvel (pessoa) cruza o caminho</td>
+          <td>Colisão</td>
+          <td>Replanning a 2 Hz; emergency stop se LiDAR detecta &lt;0.5 m</td>
+        </tr>
+        <tr>
+          <td>STT confunde palavras</td>
+          <td>Comando errado</td>
+          <td>Confirmação por TTS: <em>"vou ao canto da sala, ok?"</em></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============== 16. RESUMO ============== -->
+  <section data-background-gradient="linear-gradient(135deg, #1b2027 0%, #111418 100%)">
+    <h2>Resumo</h2>
+    <div class="grid2">
+      <div class="card accent3">
+        <h3>✅ Você já tem</h3>
+        <ul class="small tight">
+          <li>Policy de locomoção robusta (model_10000.pt)</li>
+          <li>Pipeline de deploy C++ funcional no Go2 real</li>
+          <li>LiDAR L1 no hardware (só falta integrar)</li>
+          <li>IMU, encoders, gamepad funcionando</li>
+        </ul>
+      </div>
+      <div class="card accent">
+        <h3>🛠️ Falta construir</h3>
+        <ul class="small tight">
+          <li>Captura de áudio + Whisper (1-2 dias)</li>
+          <li>NLU com LLM local (1-2 dias)</li>
+          <li>SLAM + mapa anotado (~1 semana)</li>
+          <li>Planejador A* + pure-pursuit (3-4 dias)</li>
+          <li>Bridge DDS pro <code>cmd_vel</code> (1-2 dias)</li>
+        </ul>
+      </div>
+    </div>
+    <h3 style="margin-top:18px;">A intuição central</h3>
+    <p class="small">A policy de RL já é a parte difícil (e está pronta). <strong>Tudo o que falta é gerar
+    um <code>(vx, vy, ωz)</code> inteligente em vez do gamepad.</strong> Cada uma das 6 fases
+    contribui pra fechar a malha de "voz → significado → posição → caminho → velocidade".</p>
+    <p style="text-align:center; font-size:1.4em; margin-top:18px; color:var(--accent2);">
+      🎙️ → 📝 → 🎯 → 🗺️ → 📍 → 🛣️ → 🐕
+    </p>
+  </section>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#111418',
+      primaryColor: '#1b2027',
+      primaryBorderColor: '#ffb454',
+      primaryTextColor: '#eee',
+      lineColor: '#7dd3fc',
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '15px'
+    },
+    flowchart: { curve: 'basis', padding: 8 },
+    mindmap: { padding: 10 }
+  });
+
+  // render mermaid manually so reveal sizing works
+  document.querySelectorAll('.mermaid').forEach((el, i) => {
+    const code = el.textContent;
+    el.removeAttribute('data-processed');
+    mermaid.render('mmd-' + i, code).then(({ svg }) => {
+      el.innerHTML = svg;
+    }).catch(err => {
+      el.innerHTML = '<pre style="color:#f472b6;font-size:0.7em;">Mermaid error:\n' + err + '\n\n' + code + '</pre>';
+    });
+  });
+
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'slide',
+    width: 1280,
+    height: 800,
+    margin: 0.04,
+    plugins: [ RevealHighlight ]
+  });
+</script>
+</body>
+</html>

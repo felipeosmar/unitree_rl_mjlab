@@ -36,18 +36,88 @@ class PlayConfig:
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
   gamepad: str | None = "/dev/input/js0"
   """Path to gamepad device for Xbox controller input (None to disable)."""
+  nconmax: int | None = None
+  """Override sim.nconmax (max contacts per world). Useful with num_envs=1 in
+  Rough terrain where the heuristic underestimates contacts and triggers
+  `nconmax overflow`. Try 256 if you hit that error."""
+  gallop_checkpoint: str | None = None
+  """Optional second policy file (bound/gallop). When set, the Xbox Y button toggles
+  between the primary policy (trot) and this one."""
+  gallop_task_id: str = "Unitree-Go2-Gallop"
+  """Task id used to load the agent cfg for the gallop policy. Must match the task
+  the gallop checkpoint was trained with."""
 
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
 
 
+# Gait params per policy (must match the task configs the policies were trained on).
+_TROT_PERIOD: float = 0.6
+_TROT_MAX_VX: float = 2.0
+_GALLOP_PERIOD: float = 0.35
+_GALLOP_MAX_VX: float = 3.5
+_GAMEPAD_BTN_TOGGLE: int = 3  # Xbox 'Y' button.
+
+
+class PolicySwitcher:
+  """Holds two inference policies and switches the env's phase observation
+  period to match the active policy. Used to run a single env with two
+  separately-trained policies (trot + bound)."""
+
+  def __init__(self, env, policies, names, max_speeds, periods):
+    self._env = env
+    self._policies = policies
+    self._names = names
+    self._max_speeds = max_speeds
+    self._periods = periods
+    self._idx = 0
+    self._apply()
+
+  def _apply(self) -> None:
+    om = self._env.unwrapped.observation_manager
+    period = self._periods[self._idx]
+    for grp in ("actor", "critic"):
+      try:
+        term_cfg = om.get_term_cfg(grp, "phase")
+      except ValueError:
+        continue
+      term_cfg.params["period"] = period
+    print(
+      f"[Modo] {self._names[self._idx]} "
+      f"(period={period:.2f}s, max_vx={self._max_speeds[self._idx]:.1f} m/s)"
+    )
+
+  def toggle(self) -> None:
+    self._idx = (self._idx + 1) % len(self._policies)
+    self._apply()
+
+  @property
+  def max_speed(self) -> float:
+    return self._max_speeds[self._idx]
+
+  def __call__(self, obs):
+    return self._policies[self._idx](obs)
+
+
 def run_play(task_id: str, cfg: PlayConfig):
   configure_torch_backends()
 
-  device = cfg.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
+  if cfg.device is not None:
+    device = cfg.device
+  else:
+    if not torch.cuda.is_available():
+      raise RuntimeError(
+        "CUDA GPU not available. Pass --device cpu explicitly to run on CPU."
+      )
+    device = "cuda:0"
+  print(f"[INFO] Device: {device}")
 
   env_cfg = load_env_cfg(task_id, play=True)
   agent_cfg = load_rl_cfg(task_id)
+
+  if cfg.nconmax is not None:
+    env_cfg.sim.nconmax = cfg.nconmax
+    print(f"[INFO] sim.nconmax override: {cfg.nconmax}")
 
   DUMMY_MODE = cfg.agent in {"zero", "random"}
   TRAINED_MODE = not DUMMY_MODE
@@ -161,6 +231,30 @@ def run_play(task_id: str, cfg: PlayConfig):
     )
     policy = runner.get_inference_policy(device=device)
 
+  # Optionally load a second (gallop/bound) policy and wrap as a switcher.
+  switcher: PolicySwitcher | None = None
+  if TRAINED_MODE and cfg.gallop_checkpoint is not None:
+    gallop_path = Path(cfg.gallop_checkpoint)
+    if not gallop_path.exists():
+      raise FileNotFoundError(f"Gallop checkpoint not found: {gallop_path}")
+    print(f"[INFO]: Loading gallop checkpoint: {gallop_path.name}")
+    gallop_agent_cfg = load_rl_cfg(cfg.gallop_task_id)
+    gallop_runner_cls = load_runner_cls(cfg.gallop_task_id) or MjlabOnPolicyRunner
+    gallop_runner = gallop_runner_cls(env, asdict(gallop_agent_cfg), device=device)
+    gallop_runner.load(
+      str(gallop_path), load_cfg={"actor": True}, strict=True, map_location=device
+    )
+    gallop_policy = gallop_runner.get_inference_policy(device=device)
+    switcher = PolicySwitcher(
+      env=env,
+      policies=[policy, gallop_policy],
+      names=["trote", "galope"],
+      max_speeds=[_TROT_MAX_VX, _GALLOP_MAX_VX],
+      periods=[_TROT_PERIOD, _GALLOP_PERIOD],
+    )
+    policy = switcher
+    print("[INFO]: Pressione o botão Y do Xbox para alternar entre trote e galope.")
+
   # Enable hardware gamepad if requested.
   if cfg.gamepad is not None:
     from src.tasks.velocity.mdp.gamepad import Gamepad
@@ -173,13 +267,31 @@ def run_play(task_id: str, cfg: PlayConfig):
         if gp.start():
           _original_compute = term.compute
           _ranges = term.cfg.ranges
+          _btn_prev = [False]
 
-          def _patched_compute(dt, _orig=_original_compute, _gp=gp, _r=_ranges, _t=term):
+          def _patched_compute(
+            dt,
+            _orig=_original_compute,
+            _gp=gp,
+            _r=_ranges,
+            _t=term,
+            _sw=switcher,
+            _prev=_btn_prev,
+          ):
             _orig(dt)
-            if _gp.connected:
-              _t.vel_command_b[0, 0] = _gp.left_y * _r.lin_vel_x[1]
-              _t.vel_command_b[0, 1] = -_gp.left_x * _r.lin_vel_y[1]
-              _t.vel_command_b[0, 2] = -_gp.right_x * _r.ang_vel_z[1]
+            if not _gp.connected:
+              return
+            if _sw is not None:
+              pressed = _gp.button(_GAMEPAD_BTN_TOGGLE)
+              if pressed and not _prev[0]:
+                _sw.toggle()
+              _prev[0] = pressed
+              max_x = _sw.max_speed
+            else:
+              max_x = _r.lin_vel_x[1]
+            _t.vel_command_b[0, 0] = _gp.left_y * max_x
+            _t.vel_command_b[0, 1] = -_gp.left_x * _r.lin_vel_y[1]
+            _t.vel_command_b[0, 2] = -_gp.right_x * _r.ang_vel_z[1]
 
           term.compute = _patched_compute
           print(f"[INFO]: Xbox gamepad enabled — left stick: move, right stick: turn")

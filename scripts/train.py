@@ -61,6 +61,20 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
 
   print(f"[INFO] Training with: device={device}, seed={seed}, rank={rank}")
 
+  if device.startswith("cuda") and rank == 0:
+    import torch
+
+    gpu_idx = torch.cuda.current_device()
+    gpu_name = torch.cuda.get_device_name(gpu_idx)
+    total_mem = torch.cuda.get_device_properties(gpu_idx).total_memory / 1024**3
+    free_mem, _ = torch.cuda.mem_get_info(gpu_idx)
+    free_gb = free_mem / 1024**3
+    num_envs = cfg.env.scene.num_envs
+    print(
+      f"[INFO] GPU: {gpu_name} | VRAM total: {total_mem:.1f} GiB "
+      f"| free: {free_gb:.1f} GiB | num_envs: {num_envs}"
+    )
+
   # Check if this is a tracking task by checking for motion command.
   is_tracking_task = "motion" in cfg.env.commands and isinstance(
     cfg.env.commands["motion"], MotionCommandCfg
