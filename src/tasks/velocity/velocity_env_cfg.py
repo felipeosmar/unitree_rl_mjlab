@@ -378,9 +378,14 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
       func=mdp.commands_vel,
       params={
         "command_name": "twist",
+        # Ramp suave em 4 stages — o salto direto pra (-1.0, 2.0) no iter 5000
+        # estava destruindo o tracking (error_vel_xy ~3x maior). Stages
+        # intermediários permitem a política se adaptar.
         "velocity_stages": [
-          {"step": 0, "lin_vel_x": (-0.5, 1.0), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
-          {"step": 5000 * 24, "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-1.0, 1.0)},
+          {"step": 0,         "lin_vel_x": (-0.5, 1.0), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
+          {"step": 2000 * 24, "lin_vel_x": (-0.7, 1.3), "lin_vel_y": (-0.7, 0.7)},
+          {"step": 5000 * 24, "lin_vel_x": (-1.0, 1.6), "lin_vel_y": (-1.0, 1.0)},
+          {"step": 8000 * 24, "lin_vel_x": (-1.0, 2.0), "lin_vel_y": (-1.0, 1.0)},
         ],
       },
     ),
