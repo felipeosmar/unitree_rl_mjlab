@@ -1,5 +1,9 @@
 """Script to train RL agent with RSL-RL."""
 
+# Patch warp's API surface (mjlab 1.2.0 expects wp.context.runtime.driver_version
+# which exists in warp ≥1.14; we have 1.13). Must run before any mjlab import.
+import src.warp_compat  # noqa: F401
+
 import logging
 import os
 import sys
