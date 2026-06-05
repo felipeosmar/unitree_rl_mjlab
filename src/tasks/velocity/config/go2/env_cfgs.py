@@ -5,6 +5,7 @@ from typing import Literal
 from src.assets.robots import (
   get_go2_robot_cfg,
 )
+import mjlab.terrains as terrain_gen
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
@@ -132,6 +133,76 @@ def unitree_go2_rough_env_cfg(
         cfg.scene.terrain.terrain_generator.num_cols = 5
         cfg.scene.terrain.terrain_generator.num_rows = 5
         cfg.scene.terrain.terrain_generator.border_width = 10.0
+
+  return cfg
+
+
+def unitree_go2_obstacles_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Unitree Go2 flat observations + obstacle terrain for testing."""
+  cfg = unitree_go2_rough_env_cfg(play=play)
+
+  cfg.sim.njmax = 300
+  cfg.sim.mujoco.ccd_iterations = 50
+  cfg.sim.contact_sensor_maxmatch = 64
+  cfg.sim.nconmax = None
+
+  # Remove terrain_scan sensor and height_scan (not in flat-trained policy).
+  cfg.scene.sensors = tuple(
+    s for s in (cfg.scene.sensors or ()) if s.name != "terrain_scan"
+  )
+  if "height_scan" in cfg.observations["actor"].terms:
+    del cfg.observations["actor"].terms["height_scan"]
+  if "height_scan" in cfg.observations["critic"].terms:
+    del cfg.observations["critic"].terms["height_scan"]
+
+  cfg.curriculum.pop("terrain_levels", None)
+
+  if play:
+    twist_cmd = cfg.commands["twist"]
+    assert isinstance(twist_cmd, UniformVelocityCommandCfg)
+    twist_cmd.ranges.lin_vel_x = (-0.5, 1.0)
+    twist_cmd.ranges.lin_vel_y = (-0.5, 0.5)
+    twist_cmd.ranges.ang_vel_z = (-0.5, 0.5)
+
+    if cfg.scene.terrain is not None and cfg.scene.terrain.terrain_generator is not None:
+      cfg.scene.terrain.terrain_generator.curriculum = False
+      cfg.scene.terrain.terrain_generator.num_cols = 5
+      cfg.scene.terrain.terrain_generator.num_rows = 5
+      cfg.scene.terrain.terrain_generator.border_width = 10.0
+      # Mix of flat, stairs, boxes, and obstacles
+      cfg.scene.terrain.terrain_generator.sub_terrains = {
+        "flat": terrain_gen.BoxFlatTerrainCfg(proportion=0.2),
+        "pyramid_stairs": terrain_gen.BoxPyramidStairsTerrainCfg(
+          proportion=0.15, step_height_range=(0.0, 0.15), step_width=0.3,
+          platform_width=3.0, border_width=1.0,
+        ),
+        "pyramid_stairs_inv": terrain_gen.BoxInvertedPyramidStairsTerrainCfg(
+          proportion=0.15, step_height_range=(0.0, 0.15), step_width=0.3,
+          platform_width=3.0, border_width=1.0,
+        ),
+        "open_stairs": terrain_gen.BoxOpenStairsTerrainCfg(
+          proportion=0.1, step_height_range=(0.1, 0.2), step_width_range=(0.4, 0.8),
+          platform_width=1.0, border_width=0.25,
+        ),
+        "random_stairs": terrain_gen.BoxRandomStairsTerrainCfg(
+          proportion=0.1, step_width=0.8, step_height_range=(0.1, 0.3),
+          platform_width=1.0, border_width=0.25,
+        ),
+        "random_spread_boxes": terrain_gen.BoxRandomSpreadTerrainCfg(
+          proportion=0.15, num_boxes=60, box_width_range=(0.2, 0.8),
+          box_length_range=(0.2, 0.8), box_height_range=(0.05, 0.4),
+          platform_width=1.0, border_width=0.25,
+        ),
+        "stepping_stones": terrain_gen.BoxSteppingStonesTerrainCfg(
+          proportion=0.1, stone_size_range=(0.4, 0.8), stone_distance_range=(0.2, 0.5),
+          stone_height=0.2, stone_height_variation=0.1, stone_size_variation=0.2,
+          displacement_range=0.1, floor_depth=2.0, platform_width=1.0, border_width=0.25,
+        ),
+        "discrete_obstacles": terrain_gen.HfDiscreteObstaclesTerrainCfg(
+          proportion=0.05, obstacle_width_range=(0.3, 1.0), obstacle_height_range=(0.05, 0.3),
+          num_obstacles=40, border_width=0.25,
+        ),
+      }
 
   return cfg
 

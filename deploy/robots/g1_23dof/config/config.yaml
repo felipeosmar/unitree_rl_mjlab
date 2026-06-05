@@ -4,13 +4,9 @@ FSM:
       id: 1
     FixStand:
       id: 2
-    Velocity:
-      id: 3
+    Platform:
+      id: 4
       type: RLBase
-
-    Mimic_Dance1_subject2:
-      id: 5
-      type: Mimic
 
   Passive:
     transitions: 
@@ -30,9 +26,9 @@ FSM:
       3,3,3,3,3,3,3,  
     ]
   FixStand:
-    transitions: 
+    transitions:
       Passive: LT + B.on_pressed
-      Velocity: RT + A.on_pressed
+      Platform: RT + A.on_pressed
     kp: [
       100., 100., 100., 150., 40., 40.,
       100., 100., 100., 150., 40., 40.,
@@ -58,10 +54,16 @@ FSM:
       ]
     ]
   Velocity:
-    transitions: 
+    transitions:
       Passive: LT + B.on_pressed
       Mimic_Dance1_subject2: RB + A.on_pressed
     policy_dir: config/policy/velocity
+
+  Platform:
+    transitions:
+      Passive: LT + B.on_pressed
+      FixStand: RT + A.on_pressed
+    policy_dir: config/policy/platform
 
   Mimic_Dance1_subject2:
     transitions:

@@ -5,7 +5,8 @@ Robot-specific configurations call the factory and customize as needed.
 """
 
 import math
-from dataclasses import replace
+import torch
+from dataclasses import dataclass, replace
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
@@ -32,6 +33,46 @@ from mjlab.viewer import ViewerConfig
 
 import src.tasks.velocity.mdp as mdp
 
+@dataclass
+class LidarPatternCfg:
+  """Configuração para um padrão de LiDAR cilíndrico (360°)."""
+  horizontal_fov: tuple[float, float]
+  vertical_fov: tuple[float, float]
+  channels: int
+  horizontal_res: int
+
+  def generate_rays(self, *args, **kwargs) -> tuple[torch.Tensor, torch.Tensor]:
+    """Gera os vetores de direção para o padrão cilíndrico do LiDAR."""
+    # O mjlab pode passar (mj_model, device) ou apenas (device).
+    # Procuramos o argumento que seja uma string ou torch.device.
+    torch_device = kwargs.get("device")
+    if torch_device is None:
+      for arg in args:
+        if isinstance(arg, (str, torch.device)):
+          torch_device = arg
+          break
+    if torch_device is None:
+      torch_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Cria os ângulos de azimute (horizontal) e elevação (vertical)
+    azimuths = torch.linspace(self.horizontal_fov[0], self.horizontal_fov[1], self.horizontal_res, device=torch_device)
+    elevations = torch.linspace(self.vertical_fov[0], self.vertical_fov[1], self.channels, device=torch_device)
+    
+    # Cria a malha de combinações entre os ângulos
+    az, el = torch.meshgrid(azimuths, elevations, indexing='ij')
+    az = az.flatten()
+    el = el.flatten()
+    
+    # Conversão de coordenadas esféricas para cartesianas (vetores unitários)
+    x = torch.cos(el) * torch.cos(az)
+    y = torch.cos(el) * torch.sin(az)
+    z = torch.sin(el)
+    
+    directions = torch.stack([x, y, z], dim=-1)
+    offsets = torch.zeros_like(directions) # Todos os raios partem da origem do sensor
+    
+    return offsets, directions
+
 
 def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
   """Create base velocity tracking task configuration."""
@@ -49,6 +90,19 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     exclude_parent_body=True,
     debug_vis=True,
     viz=RayCastSensorCfg.VizCfg(show_normals=True),
+  )
+
+  lidar_l1 = RayCastSensorCfg(
+    name="lidar_l1",
+    frame=ObjRef(type="body", name="base_link", entity="robot"),
+    pattern=LidarPatternCfg(
+      horizontal_fov=(0, 2 * math.pi),
+      vertical_fov=(math.radians(-29.5), math.radians(29.5)),  # 59° total
+      channels=32,
+      horizontal_res=64,
+    ),
+    max_distance=30.0,
+    debug_vis=True,
   )
 
   ##
@@ -88,6 +142,12 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
       noise=Unoise(n_min=-0.1, n_max=0.1),
       scale=1 / terrain_scan.max_distance,
     ),
+    "lidar_scan": ObservationTermCfg(
+      func=envs_mdp.height_scan,
+      params={"sensor_name": "lidar_l1"},
+      noise=Unoise(n_min=-0.05, n_max=0.05),
+      scale=1 / 30.0,
+    ),
   }
 
   critic_terms = {
@@ -101,6 +161,11 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
       func=envs_mdp.height_scan,
       params={"sensor_name": "terrain_scan"},
       scale=1 / terrain_scan.max_distance,
+    ),
+    "lidar_scan": ObservationTermCfg(
+      func=envs_mdp.height_scan,
+      params={"sensor_name": "lidar_l1"},
+      scale=1 / 30.0,
     ),
     "foot_height": ObservationTermCfg(
       func=mdp.foot_height,
@@ -402,7 +467,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
         terrain_generator=replace(ROUGH_TERRAINS_CFG),
         max_init_terrain_level=5,
       ),
-      sensors=(terrain_scan,),
+      sensors=(terrain_scan, lidar_l1),
       num_envs=1,
       extent=2.0,
     ),
