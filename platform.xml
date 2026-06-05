@@ -1,0 +1,28 @@
+<mujoco model="tilting_platform">
+    <compiler angle="degree" coordinate="local"/>
+    <option timestep="0.002" gravity="0 0 -9.81"/>
+
+    <worldbody>
+        <light directional="true" diffuse=".8 .8 .8" specular=".2 .2 .2" pos="0 0 5" dir="0 0 -1"/>
+        
+        <!-- Ground for reference -->
+        <geom name="floor" type="plane" size="5 5 0.1" rgba=".8 .8 .8 1"/>
+
+        <!-- Tilting Platform Assembly -->
+        <body name="platform_base" pos="0 0 0.05">
+            <!-- Hinge joint allows rotation around X axis (pitch) -->
+            <joint name="platform_pitch" type="hinge" axis="1 0 0" pos="0 0 0"/>
+            
+            <!-- The actual platform surface -->
+            <geom name="platform_surface" type="box" size="0.6 0.6 0.02" rgba="0.2 0.5 0.8 1"/>
+            
+            <!-- Marker to visualize the top of the platform -->
+            <site name="platform_top" pos="0 0 0.02" size="0.01"/>
+        </body>
+    </worldbody>
+
+    <actuator>
+        <!-- Position servo to control the tilt angle -->
+        <position name="platform_servo" joint="platform_pitch" kp="1000"/>
+    </actuator>
+</mujoco>

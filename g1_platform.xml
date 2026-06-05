@@ -1,0 +1,33 @@
+<mujoco model="g1_tilting_platform">
+    <compiler angle="degree" coordinate="local"/>
+    <option timestep="0.002" gravity="0 0 -9.81"/>
+
+    <worldbody>
+        <light directional="true" diffuse=".8 .8 .8" specular=".2 .2 .2" pos="0 0 5" dir="0 0 -1"/>
+        
+        <!-- Reference Floor -->
+        <geom name="floor" type="plane" size="5 5 0.1" rgba=".8 .8 .8 1"/>
+
+        <!-- Dual Axis Tilting Mechanism -->
+        <body name="pitch_joint_body" pos="0 0 0.05">
+            <joint name="platform_pitch" type="hinge" axis="1 0 0" pos="0 0 0"/>
+            
+            <body name="roll_joint_body" pos="0 0 0">
+                <joint name="platform_roll" type="hinge" axis="0 1 0" pos="0 0 0"/>
+                
+                <!-- The actual platform surface -->
+                <geom name="platform_surface" type="box" size="0.8 0.8 0.02" rgba="0.2 0.5 0.8 1"/>
+                
+                <!-- Integration of the G1 Robot -->
+                <body name="g1_robot_wrapper" pos="0 0 0.02">
+                    <include file="/home/ctrob/work/unitree_rl_mjlab/src/assets/robots/unitree_g1/xmls/g1_fragment.xml"/>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+
+    <actuator>
+        <position name="platform_pitch_servo" joint="platform_pitch" kp="1000"/>
+        <position name="platform_roll_servo" joint="platform_roll" kp="1000"/>
+    </actuator>
+</mujoco>
